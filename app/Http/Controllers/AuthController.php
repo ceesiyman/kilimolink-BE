@@ -3,11 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\OTP;
+use App\Mail\ResetPasswordOTP;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
+use Carbon\Carbon;
 
 /**
  * @OA\Info(
@@ -325,5 +329,130 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Successfully logged out'
         ], 200);
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/password/request-reset",
+     *     summary="Request password reset OTP",
+     *     tags={"Auth"},
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"email"},
+     *             @OA\Property(property="email", type="string", format="email")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="OTP sent successfully",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="message", type="string")
+     *         )
+     *     ),
+     *     @OA\Response(response=404, description="User not found"),
+     *     @OA\Response(response=422, description="Validation error")
+     * )
+     */
+    public function requestPasswordReset(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        // Generate 6-digit OTP
+        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        // Save OTP to database
+        OTP::create([
+            'user_id' => $user->id,
+            'otp' => $otp,
+            'expires_at' => Carbon::now()->addMinutes(10),
+            'is_used' => false
+        ]);
+
+        // Send OTP email
+        try {
+            Mail::to($user->email)->send(new ResetPasswordOTP($user, $otp));
+            return response()->json(['message' => 'Password reset OTP has been sent to your email']);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to send OTP email'], 500);
+        }
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/password/reset",
+     *     summary="Reset password using OTP",
+     *     tags={"Auth"},
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"email","otp","new_password"},
+     *             @OA\Property(property="email", type="string", format="email"),
+     *             @OA\Property(property="otp", type="string"),
+     *             @OA\Property(property="new_password", type="string", format="password")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Password reset successful",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="message", type="string")
+     *         )
+     *     ),
+     *     @OA\Response(response=400, description="Invalid or expired OTP"),
+     *     @OA\Response(response=404, description="User not found"),
+     *     @OA\Response(response=422, description="Validation error")
+     * )
+     */
+    public function resetPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'otp' => 'required|string|size:6',
+            'new_password' => 'required|string|min:6'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        $otp = OTP::where('user_id', $user->id)
+                  ->where('otp', $request->otp)
+                  ->where('is_used', false)
+                  ->where('expires_at', '>', Carbon::now())
+                  ->latest()
+                  ->first();
+
+        if (!$otp) {
+            return response()->json(['message' => 'Invalid or expired OTP'], 400);
+        }
+
+        // Mark OTP as used
+        $otp->update(['is_used' => true]);
+
+        // Update password
+        $user->update([
+            'password' => Hash::make($request->new_password)
+        ]);
+
+        return response()->json(['message' => 'Password has been reset successfully']);
     }
 } 

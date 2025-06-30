@@ -145,4 +145,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/community/messages/{messageId}/replies/{replyId}', [MessageReplyController::class, 'update']);
     Route::delete('/community/messages/{messageId}/replies/{replyId}', [MessageReplyController::class, 'destroy']);
     Route::post('/community/messages/{messageId}/replies/{replyId}/like', [MessageReplyController::class, 'toggleLike']);
-}); 
+});
+
+// Password Reset Routes
+Route::post('/password/request-reset', [AuthController::class, 'requestPasswordReset']);
+Route::post('/password/reset', [AuthController::class, 'resetPassword']); 
