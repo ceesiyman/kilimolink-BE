@@ -254,12 +254,11 @@ class AuthController extends Controller
             // Move the file directly to public directory
             $image->move($uploadPath, $imageName);
 
-            // Delete old image if exists
-            if ($user->image_url) {
-                $oldImagePath = public_path(str_replace('storage/', '', $user->image_url));
-                if (file_exists($oldImagePath)) {
-                    unlink($oldImagePath);
-                }
+            // Delete old image if exists and is not default.png
+            if ($user->image_url && 
+                !str_contains($user->image_url, 'default.png') && 
+                file_exists(public_path(str_replace('storage/', '', $user->image_url)))) {
+                unlink(public_path(str_replace('storage/', '', $user->image_url)));
             }
 
             // Update user image URL to point to the public directory
